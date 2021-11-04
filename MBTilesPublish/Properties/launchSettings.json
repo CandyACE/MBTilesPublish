@@ -1,0 +1,8 @@
+{
+  "profiles": {
+    "MBTilesPublish": {
+      "commandName": "Project",
+      "commandLineArgs": " D:\\Temp\\download\\影像下载_2107081531\\影像下载_2107081531.mbtiles"
+    }
+  }
+}
