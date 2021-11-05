@@ -62,7 +62,10 @@ namespace MBTilesPublish
             rootCommand.InvokeAsync(args);
         }
 
+        private static async void GetDataSourceInfo()
+        {
 
+        }
 
         private static async Task ProcessAsync(HttpContext context)
         {
