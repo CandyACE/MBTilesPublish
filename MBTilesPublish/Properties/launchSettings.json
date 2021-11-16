@@ -2,7 +2,7 @@
   "profiles": {
     "MBTilesPublish": {
       "commandName": "Project",
-      "commandLineArgs": " D:\\Temp\\download\\影像下载_2107081531\\影像下载_2107081531.mbtiles"
+      "commandLineArgs": " -l D:\\Company\\软件\\SXEarth视频三维融合案例\\data\\images\\image_formats\\mbtiles\\image.mbtiles"
     }
   }
 }

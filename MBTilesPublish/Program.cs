@@ -20,6 +20,7 @@ namespace MBTilesPublish
     {
         private static IWebHost host;
         private static MbTilesTileSource conn;
+        private static Boolean isLog;
 
         private static string banner = @"
   ________________                          
@@ -36,31 +37,40 @@ namespace MBTilesPublish
             {
                 new Argument<string>("url","The MBTiles Path."),
                 new Option<int>(new string[]{"--port","-p"},getDefaultValue: () => 8080,"Set Server Port."),
-        };
+                new Option<bool>(new string[]{"--log","-l"},"Log to console."),
+            };
 
-            rootCommand.Handler = CommandHandler.Create<string, int>((string url, int port) =>
-            {
-                host = new WebHostBuilder().UseKestrel((options) =>
-                {
-                    options.Listen(IPAddress.Any, port, listenOptions => { });
-                }).Configure(app =>
-                {
-                    app.Run(ProcessAsync);
-                }).Build();
+            rootCommand.Handler = CommandHandler.Create<string, int, bool>((string url, int port, bool log) =>
+             {
+                 isLog = log;
 
-                // DB
-                if (!File.Exists(url))
-                {
-                    throw new FileNotFoundException(url + " is not Found!");
-                }
-                conn = new MbTilesTileSource(new SQLiteConnectionString(url));
+                 var backgroundColor = Console.BackgroundColor;
+                 var foregroundColor = Console.ForegroundColor;
 
-                Console.WriteLine(banner);
-                GetDataSourceInfo();
-                Console.WriteLine("Server on:: " + port + "\r\nThe Map Server is like: http://127.0.0.1:" + port + "/GetTile?x={x}&y={y}&z={z}\r\n");
+                 host = new WebHostBuilder().UseKestrel((options) =>
+                 {
+                     options.Listen(IPAddress.Any, port, listenOptions => { });
+                 }).Configure(app =>
+                 {
+                     app.Run(ProcessAsync);
+                 }).Build();
 
-                host.Run();
-            });
+                 // DB
+                 if (!File.Exists(url))
+                 {
+                     throw new FileNotFoundException(url + " is not Found!");
+                 }
+                 conn = new MbTilesTileSource(new SQLiteConnectionString(url));
+
+                 Console.ForegroundColor = ConsoleColor.Yellow;
+                 Console.WriteLine(banner);
+                 GetDataSourceInfo();
+
+                 Console.WriteLine("Server on:: " + port + "\r\nThe Map Server is like: http://127.0.0.1:" + port + "/GetTile?x={x}&y={y}&z={z}\r\n");
+                 Console.ForegroundColor = foregroundColor;
+
+                 host.Run();
+             });
 
             rootCommand.InvokeAsync(args);
         }
@@ -77,7 +87,6 @@ namespace MBTilesPublish
             Console.WriteLine("YAxis:\t{0}", conn.Schema.YAxis);
             Console.WriteLine("Size:\t{0}*{1}", conn.Schema.GetTileWidth(0), conn.Schema.GetTileHeight(0));
             Console.WriteLine();
-
         }
 
         private static async Task ProcessAsync(HttpContext context)
@@ -91,6 +100,7 @@ namespace MBTilesPublish
             {
                 context.Response.StatusCode = 404;
                 await context.Response.WriteAsync("The path is not reuqired.");
+                LogMessage(context, $"[{context.Request.Path.Value} is not require]");
                 return;
             }
 
@@ -103,11 +113,30 @@ namespace MBTilesPublish
             {
                 context.Response.StatusCode = 404;
                 await context.Response.WriteAsync("No Found This Tile.");
+                LogMessage(context, $"[{x},{y},{z}] No Found This Tile.");
                 return;
             }
 
             context.Response.ContentType = mimeDictionary[conn.Schema.Format.ToLower()];
             await context.Response.Body.WriteAsync(data, 0, data.Length);
+        }
+
+        /// <summary>
+        /// 输出日志
+        /// </summary>
+        /// <param name="message"></param>
+        private static void LogMessage(HttpContext content, string message)
+        {
+            if (!isLog) return;
+
+            var time = DateTime.Now;
+            var foregroundColor = Console.ForegroundColor;
+            var backgroundColor = Console.BackgroundColor;
+
+            Console.BackgroundColor = ConsoleColor.Magenta;
+            Console.Write($"[{time.ToShortDateString()} {time.ToLongTimeString()}]");
+            Console.BackgroundColor = backgroundColor;
+            Console.WriteLine(message);
         }
 
         private static Dictionary<string, string> mimeDictionary = new Dictionary<string, string>()
