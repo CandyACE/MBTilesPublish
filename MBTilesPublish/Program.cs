@@ -96,29 +96,35 @@ namespace MBTilesPublish
             context.Response.Headers["Access-Control-Allow-Methods"] = "GET, POST";
             context.Response.Headers["Access-Control_Allow-Headers"] = "Content-Type";
 
-            if (!"/GetTile".Equals(context.Request.Path.Value))
+            if ("/GetTile".Equals(context.Request.Path.Value))
+            {
+                var z = Int32.Parse(context.Request.Query["z"]);
+                var x = Int32.Parse(context.Request.Query["x"]);
+                var y = Int32.Parse(context.Request.Query["y"]);
+
+                var data = conn.GetTile(new TileInfo() { Index = new TileIndex(x, y, z) });
+                if (data == null)
+                {
+                    context.Response.StatusCode = 404;
+                    await context.Response.WriteAsync("No Found This Tile.");
+                    LogMessage(context, $"[{x},{y},{z}] No Found This Tile.");
+                    return;
+                }
+
+                context.Response.ContentType = mimeDictionary[conn.Schema.Format.ToLower()];
+                await context.Response.Body.WriteAsync(data, 0, data.Length);
+            }
+            //else if ("/GetMap".Equals(context.Request.Path.Value))
+            //{
+
+            //}
+            else
             {
                 context.Response.StatusCode = 404;
                 await context.Response.WriteAsync("The path is not reuqired.");
                 LogMessage(context, $"[{context.Request.Path.Value} is not require]");
                 return;
             }
-
-            var z = Int32.Parse(context.Request.Query["z"]);
-            var x = Int32.Parse(context.Request.Query["x"]);
-            var y = Int32.Parse(context.Request.Query["y"]);
-
-            var data = conn.GetTile(new TileInfo() { Index = new TileIndex(x, y, z) });
-            if (data == null)
-            {
-                context.Response.StatusCode = 404;
-                await context.Response.WriteAsync("No Found This Tile.");
-                LogMessage(context, $"[{x},{y},{z}] No Found This Tile.");
-                return;
-            }
-
-            context.Response.ContentType = mimeDictionary[conn.Schema.Format.ToLower()];
-            await context.Response.Body.WriteAsync(data, 0, data.Length);
         }
 
         /// <summary>
