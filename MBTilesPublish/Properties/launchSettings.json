@@ -2,7 +2,7 @@
   "profiles": {
     "MBTilesPublish": {
       "commandName": "Project",
-      "commandLineArgs": " -l D:\\Company\\软件\\SXEarth视频三维融合案例\\data\\images\\image_formats\\mbtiles\\image.mbtiles"
+      "commandLineArgs": " -l -p 8081,8082 D:\\BaiduNetdiskDownload\\china_with_water.mbtiles"
     }
   }
 }

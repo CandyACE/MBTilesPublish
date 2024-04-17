@@ -12,14 +12,27 @@ using BruTile.MbTiles;
 using Microsoft.AspNetCore.Builder;
 using Microsoft.AspNetCore.Hosting;
 using Microsoft.AspNetCore.Http;
+using Microsoft.Extensions.DependencyInjection;
+using Microsoft.Extensions.Logging;
 using SQLite;
 
 namespace MBTilesPublish
 {
+    class MbTilesItem
+    {
+        public MbTilesItem(string url)
+        {
+            this.name = Path.GetFileNameWithoutExtension(url);
+            this.db = new MbTilesTileSource(new SQLiteConnectionString(url));
+        }
+
+        public string name { get; }
+        public MbTilesTileSource db { get; }
+    }
+
     class Program
     {
-        private static IWebHost host;
-        private static MbTilesTileSource conn;
+        private static List<MbTilesItem> conns = new List<MbTilesItem>();
         private static Boolean isLog;
 
         private static string banner = @"
@@ -36,102 +49,140 @@ namespace MBTilesPublish
             var rootCommand = new RootCommand
             {
                 new Argument<string>("url","The MBTiles Path."),
-                new Option<int>(new string[]{"--port","-p"},getDefaultValue: () => 8080,"Set Server Port."),
+                new Option<string>(new string[]{"--ports","-p"}, getDefaultValue: () => "8080", "Set Server Ports."),
                 new Option<bool>(new string[]{"--log","-l"},"Log to console."),
+                new Option<bool>(new string[]{"--folder","-f"}, "Indicates that Url is a folder."),
             };
 
-            rootCommand.Handler = CommandHandler.Create<string, int, bool>((string url, int port, bool log) =>
+            rootCommand.Handler = CommandHandler.Create<string, string, bool, bool>((string url, string ports, bool log, bool folder) =>
              {
                  isLog = log;
 
                  var backgroundColor = Console.BackgroundColor;
                  var foregroundColor = Console.ForegroundColor;
 
-                 host = new WebHostBuilder().UseKestrel((options) =>
-                 {
-                     options.Listen(IPAddress.Any, port, listenOptions => { });
-                 }).Configure(app =>
-                 {
-                     app.Run(ProcessAsync);
-                 }).Build();
+                 var builder = WebApplication.CreateBuilder();
+                 builder.Logging.SetMinimumLevel(LogLevel.Warning);
 
-                 // DB
-                 if (!File.Exists(url))
+                 var app = builder.Build();
+                 app.Use((context, next) =>
                  {
-                     throw new FileNotFoundException(url + " is not Found!");
+                     context.Response.ContentType = "application/text";
+                     context.Response.Headers["Access-Control-Allow-Origin"] = "*";
+                     context.Response.Headers["Access-Control-Allow-Methods"] = "GET, POST";
+                     context.Response.Headers["Access-Control-Allow-Headers"] = "Content-Type";
+                     return next(context);
+                 });
+                 app.UseRouting();
+
+                 var ps = ports.Split(",");
+                 foreach (var port in ps)
+                 {
+                     app.Urls.Add($"http://0.0.0.0:{port}");
                  }
-                 conn = new MbTilesTileSource(new SQLiteConnectionString(url));
 
                  Console.ForegroundColor = ConsoleColor.Yellow;
                  Console.WriteLine(banner);
-                 GetDataSourceInfo();
 
-                 Console.WriteLine("Server on:: " + port + "\r\nThe Map Server is like: http://127.0.0.1:" + port + "/GetTile?x={x}&y={y}&z={z}\r\n");
+                 // DB
+                 if (folder)
+                 {
+                     if (!Directory.Exists(url))
+                     {
+                         throw new DirectoryNotFoundException(url + " is not Found!");
+                     }
+                     DirectoryInfo info = new DirectoryInfo(url);
+                     var files = info.GetFiles("*.mbtiles");
+                     foreach (var fileInfo in files)
+                     {
+                         conns.Add(new MbTilesItem(fileInfo.FullName));
+                         Console.WriteLine($"{Path.GetFileNameWithoutExtension(fileInfo.FullName)} loaded!");
+                     }
+                 }
+                 else
+                 {
+                     if (!File.Exists(url))
+                     {
+                         throw new FileNotFoundException(url + " is not Found!");
+                     }
+                     conns.Add(new MbTilesItem(url));
+                     Console.WriteLine($"{Path.GetFileNameWithoutExtension(url)} loaded!");
+                 }
+
+
+                 //GetDataSourceInfo();
+
+                 Console.WriteLine(Environment.NewLine + "Server on:: " + string.Join(",", ports) + Environment.NewLine);
+
+                 Console.ForegroundColor = ConsoleColor.White;
+                 foreach (var con in conns)
+                 {
+                     foreach (var port in ps)
+                     {
+                         Console.WriteLine($"You can get the meta like http://127.0.0.1:{port}/{Path.GetFileNameWithoutExtension(con.name)}/meta");
+                         Console.WriteLine($"You can get the tile like http://127.0.0.1:{port}/{Path.GetFileNameWithoutExtension(con.name)}/" + "{z}/{x}/{y}");
+                     }
+                 }
                  Console.ForegroundColor = foregroundColor;
 
-                 host.Run();
+                 app.MapGet("/{mbtiles_name}/{z:int}/{x:int}/{y:int}", GetTile);
+                 app.MapGet("/{mbtiles_name}/meta", GetMeta);
+
+                 app.Run();
              });
 
             rootCommand.InvokeAsync(args);
         }
 
-        private static async void GetDataSourceInfo()
+        private static IResult GetMeta(string mbtiles_name)
         {
-            Console.WriteLine();
-            Console.WriteLine("Description:\t{0}", conn.Description);
-            Console.WriteLine("Version:\t{0}", conn.Version);
-            Console.WriteLine("Attribution:\t{0}", conn.Attribution.Text);
-            Console.WriteLine("Type:\t{0}", conn.Type);
-            Console.WriteLine("Format:\t{0}", conn.Schema.Format);
-            Console.WriteLine("SRS:\t{0}", conn.Schema.Srs);
-            Console.WriteLine("YAxis:\t{0}", conn.Schema.YAxis);
-            Console.WriteLine("Size:\t{0}*{1}", conn.Schema.GetTileWidth(0), conn.Schema.GetTileHeight(0));
-            Console.WriteLine();
+            var mb = conns.Find(item => item.name == mbtiles_name);
+            if (mb != null)
+            {
+                return Results.Json(new
+                {
+                    code = 200,
+                    data = new
+                    {
+                        Description = mb.db.Description,
+                        Version = mb.db.Version,
+                        Attribution = mb.db.Attribution.Text,
+                        Type = mb.db.Type,
+                        Format = mb.db.Schema.Format,
+                        SRS = mb.db.Schema.Srs,
+                        YAxis = mb.db.Schema.YAxis,
+                        Size = $"{mb.db.Schema.GetTileWidth(0)}*{mb.db.Schema.GetTileHeight(0)}"
+                    }
+                });
+            }
+
+            LogMessage($"{mbtiles_name} is not found");
+            return Results.NotFound();
         }
 
-        private static async Task ProcessAsync(HttpContext context)
+        private static IResult GetTile(string mbtiles_name, int z, int x, int y, HttpContext context)
         {
-            context.Response.ContentType = "application/text";
-            context.Response.Headers["Access-Control-Allow-Origin"] = "*";
-            context.Response.Headers["Access-Control-Allow-Methods"] = "GET, POST";
-            context.Response.Headers["Access-Control_Allow-Headers"] = "Content-Type";
-
-            if ("/GetTile".Equals(context.Request.Path.Value))
+            var mb = conns.Find(item => item.name == mbtiles_name);
+            if (mb != null)
             {
-                var z = Int32.Parse(context.Request.Query["z"]);
-                var x = Int32.Parse(context.Request.Query["x"]);
-                var y = Int32.Parse(context.Request.Query["y"]);
-
-                var data = conn.GetTile(new TileInfo() { Index = new TileIndex(x, y, z) });
-                if (data == null)
+                var row = (int)Math.Pow(2, z) - 1 - y;
+                var data = mb.db.GetTile(new TileInfo() { Index = new TileIndex(x, row, z) });
+                if (data != null)
                 {
-                    context.Response.StatusCode = 404;
-                    await context.Response.WriteAsync("No Found This Tile.");
-                    LogMessage(context, $"[{x},{y},{z}] No Found This Tile.");
-                    return;
+                    return Results.Bytes(data, mimeDictionary[mb.db.Schema.Format.ToLower()]);
                 }
-
-                context.Response.ContentType = mimeDictionary[conn.Schema.Format.ToLower()];
-                await context.Response.Body.WriteAsync(data, 0, data.Length);
+                LogMessage($"[{x},{y},{z}] No Found This Tile.");
+                return Results.NotFound();
             }
-            //else if ("/GetMap".Equals(context.Request.Path.Value))
-            //{
-
-            //}
-            else
-            {
-                context.Response.StatusCode = 404;
-                await context.Response.WriteAsync("The path is not reuqired.");
-                LogMessage(context, $"[{context.Request.Path.Value} is not require]");
-                return;
-            }
+            LogMessage($"{mbtiles_name} is not found");
+            return Results.NotFound();
         }
 
         /// <summary>
         /// 输出日志
         /// </summary>
         /// <param name="message"></param>
-        private static void LogMessage(HttpContext content, string message)
+        private static void LogMessage(string message)
         {
             if (!isLog) return;
 
@@ -150,6 +201,7 @@ namespace MBTilesPublish
             {"png","image/png" },
             {"jpeg","image/jpeg" },
             {"jpg","image/jpg" },
+            {"pbf","application/x-protobuf"}
         };
     }
 }
